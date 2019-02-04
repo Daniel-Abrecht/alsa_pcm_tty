@@ -6,7 +6,8 @@
 
 #include <alsa/asoundlib.h>
 #include <alsa/pcm_ioplug.h>
-#include <assert.h>
+#include <alsa/pcm_external.h>
+#include <termios.h>
 
 #ifndef SND_PCM_IOPLUG_FLAG_BOUNDARY_WA
 #define SND_PCM_IOPLUG_FLAG_BOUNDARY_WA (1<<2)
@@ -31,8 +32,20 @@
 DECLARE_IOPLUG_CALLBACKS(playback)
 DECLARE_IOPLUG_CALLBACKS(capture)
 
+struct pcm_tty_settings {
+  char* device;
+  snd_pcm_format_t format;
+  unsigned long baudrate;
+  unsigned long samplerate;
+  tcflag_t iflag;
+  tcflag_t oflag;
+  tcflag_t cflag;
+  tcflag_t lflag;
+};
+
 struct tty_snd_plug {
   snd_pcm_ioplug_t ioplug;
+  struct pcm_tty_settings settings;
   int device_fd;
   snd_pcm_sframes_t virtual_offset;
 };

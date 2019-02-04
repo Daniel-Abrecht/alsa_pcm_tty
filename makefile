@@ -8,9 +8,11 @@ AR = ar
 SRC += src/libasound_module_pcm_tty.c
 SRC += $(wildcard src/ioplug/*.c)
 
-OPTIONS += -fPIC -DPIC 
+OPTIONS += -g -Og
+OPTIONS += -fPIC -DPIC
 OPTIONS += -std=c99 -Wall -Wextra -Werror -pedantic
 OPTIONS += -I include
+OPTIONS += -D _DEFAULT_SOURCE
 
 OBJECTS = $(addprefix tmp/,$(addsuffix .o,$(SRC)))
 

@@ -1,10 +1,10 @@
 // Copyright (c) 2019 Daniel Abrecht
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include <libasound_module_pcm_tty.h>
+
 #include <sys/ioctl.h>
 #include <termios.h>
-
-#include <libasound_module_pcm_tty.h>
 
 
 CALLBACK( capture, snd_pcm_sframes_t, pointer, (snd_pcm_ioplug_t *io) ){
