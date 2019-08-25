@@ -12,6 +12,6 @@ CALLBACK( capture, snd_pcm_sframes_t, pointer, (snd_pcm_ioplug_t *io) ){
   int available = 0;
   if(ioctl(tty->device_fd, TIOCINQ, &available) == -1 || available < 0)
     available = 0;
-  fprintf(stderr,  "capture_pointer %ld + %d = %ld\n", tty->virtual_offset, available, tty->virtual_offset + available );
+  m_debug("capture_pointer %ld + %d = %ld\n", tty->virtual_offset, available, tty->virtual_offset + available );
   return tty->virtual_offset + available;
 }

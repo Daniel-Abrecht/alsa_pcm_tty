@@ -6,6 +6,6 @@
 
 CALLBACK( playback, int, stop, (snd_pcm_ioplug_t *io) ){
   (void)io;
-  fprintf(stderr, "playback_stop\n");
+  m_debug("playback_stop\n");
   return 0;
 }

@@ -5,7 +5,7 @@
 
 
 CALLBACK( playback, snd_pcm_sframes_t, pointer, (snd_pcm_ioplug_t *io) ){
-  fprintf(stderr, "playback_pointer\n");
+  m_debug("playback_pointer\n");
   struct tty_snd_plug* tty = io->private_data;
   return tty->virtual_offset;
 }

@@ -3,6 +3,7 @@
 
 #include <libasound_module_pcm_tty.h>
 
+#include <sys/mman.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -29,6 +30,13 @@ static const unsigned long baudrate_list[] = { SPEEDS };
 #undef X
 #undef SPEEDS
 static const size_t baudrate_count = sizeof(baudrate_list) / sizeof(*baudrate_list);
+
+const char* pcm_tty_mode_list[] = {
+#define X(Y) #Y,
+  PCM_TTY_MODES
+#undef X
+  0
+};
 
 unsigned long const2baud(speed_t b){
   for(size_t i=0; i<baudrate_count; i++)
@@ -115,6 +123,19 @@ int parse_settings(snd_config_t* conf, const char*const ignore[], struct pcm_tty
       }
       continue;
     }
+    if( !strcmp(property, "mode") ){
+      char* tmp = 0;
+      error = snd_config_get_ascii(entry, &tmp);
+      if(error < 0)
+        goto backout;
+      settings.mode = pcm_tty_indexof(tmp, pcm_tty_mode_list);
+      free(tmp);
+      if(settings.mode == -1){
+        SNDERR("Invalid format");
+        goto backout;
+      }
+      continue;
+    }
     SNDERR("Unknown field %s", property);
     error = -EINVAL;
     goto backout;
@@ -158,14 +179,26 @@ SND_PCM_PLUGIN_DEFINE_FUNC(tty){
   (void)root;
 
   int error = 0;
-  int device_fd = 0;
+  int shm_fd = -1;
+  int device_fd = -1;
+  void* shm = 0;
   bool in_out_same_tty = false;
+  struct stat ttystat;
   struct termios termios;
   struct tty_snd_plug* tty = 0;
   struct pcm_tty_settings s_both={0}, s_capture={0}, s_playback={0};
   memset(&termios, 0, sizeof(termios));
+  memset(&ttystat, 0, sizeof(ttystat));
 
-  error = parse_settings(conf, (const char*[]){"comment","type","playback","capture",0}, &s_both);
+  s_capture.format = SND_PCM_FORMAT_UNKNOWN;
+  s_playback.format = SND_PCM_FORMAT_UNKNOWN;
+  s_both.format = SND_PCM_FORMAT_UNKNOWN;
+
+  s_capture.mode = PCM_TTY_MODE_INVALID;
+  s_playback.mode = PCM_TTY_MODE_INVALID;
+  s_both.mode = PCM_TTY_MODE_INVALID;
+
+  error = parse_settings(conf, (const char*[]){"comment","type","playback","capture","hint","debug",0}, &s_both);
   if(error)
     goto backout;
 
@@ -188,6 +221,10 @@ SND_PCM_PLUGIN_DEFINE_FUNC(tty){
           goto backout;
         continue;
       }
+      if( !strcmp(property, "debug") ){
+        extern bool b_m_debug;
+        b_m_debug = true;
+      }
     }
   }
 
@@ -198,7 +235,9 @@ SND_PCM_PLUGIN_DEFINE_FUNC(tty){
         error = -errno;
         goto backout;
       }
-    if(!s->format)
+    if(s->mode == PCM_TTY_MODE_INVALID)
+      s->mode = s_both.mode;
+    if(s->format == SND_PCM_FORMAT_UNKNOWN)
       s->format = s_both.format;
     if(!s->baudrate)
       s->baudrate = s_both.baudrate;
@@ -229,13 +268,38 @@ SND_PCM_PLUGIN_DEFINE_FUNC(tty){
     goto backout;
   }
 
+  if(settings->mode == PCM_TTY_MODE_INVALID)
+    settings->mode = PCM_TTY_MODE_raw;
+
+  if(settings->format == SND_PCM_FORMAT_UNKNOWN){
+    if(settings->mode != PCM_TTY_MODE_v253){
+      SNDERR("Format must be specified");
+      error = -EINVAL;
+      goto backout;
+    }else{
+      s_both.format = SND_PCM_FORMAT_U8; // If no format is specified, default to U8
+    }
+  }
+
   in_out_same_tty = s_playback.device && s_capture.device && !strcmp(s_playback.device, s_capture.device);
 
-  device_fd = open(settings->device, (stream == SND_PCM_STREAM_PLAYBACK ? O_WRONLY : O_RDONLY) | O_NOCTTY | O_NDELAY | O_NONBLOCK);
+  device_fd = open(settings->device, (stream == SND_PCM_STREAM_PLAYBACK ? O_WRONLY : (O_RDONLY | O_NDELAY | O_NONBLOCK)) | O_NOCTTY);
   if(device_fd == -1){
     SNDERR("Failed to open tty device (%s)", settings->device);
     error = -errno;
     goto backout;
+  }
+
+  if(fstat(device_fd, &ttystat) == -1){
+    SNDERR("Failed to stat tty device (%s)", settings->device);
+    error = -errno;
+    goto backout_dev_open;
+  }
+
+  if(!S_ISCHR(ttystat.st_mode)){
+    SNDERR("specified tty device file (%s) is not a character device file", settings->device);
+    error = EINVAL;
+    goto backout_dev_open;
   }
 
   if(tcgetattr(device_fd, &termios) != 0){
@@ -335,6 +399,31 @@ SND_PCM_PLUGIN_DEFINE_FUNC(tty){
     }
   }
 
+  if(settings->mode == PCM_TTY_MODE_v253){
+    char shm_name[32] = {0};
+    snprintf(shm_name, 32, "tty-pcm:%x.%x", (int)(major(ttystat.st_rdev)), (int)(minor(ttystat.st_rdev)));
+    shm_fd = shm_open(shm_name, O_RDONLY, 0666);
+    if(shm_fd == -1){
+      error = errno;
+      SNDERR("shm_open failed");
+      goto backout_dev_open;
+    }
+/*    if(ftruncate(shm_fd, 4096) == -1){
+      error = errno;
+      SNDERR("ftruncate failed");
+      close(shm_fd);
+      goto backout_dev_open;
+    }*/
+    shm = mmap(0, 4096, PROT_READ, MAP_SHARED, shm_fd, 0);
+    if(shm == MAP_FAILED){
+      error = -errno;
+      SNDERR("mmap failed\n");
+      close(shm_fd);
+      goto backout_dev_open;
+    }
+    close(shm_fd);
+  }
+
   tty = calloc(1, sizeof(*tty));
   if(!tty){
     error = -errno;
@@ -342,6 +431,8 @@ SND_PCM_PLUGIN_DEFINE_FUNC(tty){
   }
 
   tty->settings = *settings;
+  tty->shm_fd = shm_fd;
+  tty->shm = shm;
   tty->ioplug.version = SND_PCM_IOPLUG_VERSION;
   tty->ioplug.name = "TTY sound device";
   tty->ioplug.flags = SND_PCM_IOPLUG_FLAG_BOUNDARY_WA;

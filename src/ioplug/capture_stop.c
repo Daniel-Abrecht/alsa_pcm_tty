@@ -6,6 +6,6 @@
 
 CALLBACK( capture, int, stop, (snd_pcm_ioplug_t *io) ){
   (void)io;
-  fprintf(stderr, "capture_stop\n");
+  m_debug("capture_stop\n");
   return 0;
 }

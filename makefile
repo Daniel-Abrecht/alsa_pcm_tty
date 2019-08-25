@@ -6,6 +6,8 @@ LD = gcc
 AR = ar
 
 SRC += src/libasound_module_pcm_tty.c
+SRC += src/utils.c
+SRC += src/debug.c
 SRC += $(wildcard src/ioplug/*.c)
 
 OPTIONS += -g -Og
@@ -31,7 +33,7 @@ tmp/%.c.o: %.c
 	$(CC) $(OPTIONS) $< -lasound -c -o $@
 
 bin/libasound_module_pcm_tty.so: tmp/libasound_module_pcm_tty.a
-	$(LD) -shared -fPIC -Werror -Wl,--no-undefined -Wl,--whole-archive $< -Wl,--no-whole-archive -lasound -o $@
+	$(LD) -shared -fPIC -Werror -Wl,--no-undefined -Wl,--whole-archive $< -Wl,--no-whole-archive -lasound -lrt -o $@
 
 clean:
 	rm -rf tmp
